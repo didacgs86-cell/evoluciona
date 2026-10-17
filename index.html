@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101a1e">
+  <meta name="description" content="Tu espacio privado de evolución personal: registra, visualiza y celebra tus avances.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Evoluciona">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <title>Evoluciona · Mi desarrollo personal</title>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#inicio" aria-label="Evoluciona, ir al inicio"><span class="brandmark">✦</span><span><strong>evoluciona</strong><small>Un paso cada día</small></span></a>
+      <div class="sidebar-label">MI ESPACIO</div>
+      <nav class="side-nav" aria-label="Navegación principal">
+        <a href="#inicio" data-nav="inicio"><span>◈</span> Resumen</a>
+        <a href="#objetivos" data-nav="objetivos"><span>◎</span> Objetivos</a>
+        <a href="#historial" data-nav="historial"><span>▤</span> Historial</a>
+        <a href="#logros" data-nav="logros"><span>✧</span> Logros</a>
+        <a href="#ajustes" data-nav="ajustes"><span>⚙</span> Ajustes y datos</a>
+      </nav>
+      <div class="sidebar-bottom"><div class="privacy-indicator"><span class="online-dot"></span> Guardado en este dispositivo</div><p>Tu progreso, a tu ritmo.</p></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="breadcrumbs"><span class="mobile-brand">✦ evoluciona</span><span id="page-eyebrow">MI PANEL PERSONAL</span></div>
+        <div class="header-actions"><span id="today-label" class="today-label"></span><button class="btn btn-primary" data-action="open-record">＋ <span>Registrar avance</span></button></div>
+      </header>
+      <main id="app" class="app-content" tabindex="-1"><div class="loading">Preparando tu espacio personal…</div></main>
+    </div>
+  </div>
+  <nav class="bottom-nav" aria-label="Navegación móvil">
+    <a href="#inicio" data-nav="inicio"><span>◈</span><small>Inicio</small></a>
+    <a href="#objetivos" data-nav="objetivos"><span>◎</span><small>Metas</small></a>
+    <button type="button" class="bottom-add" data-action="open-record" aria-label="Registrar avance">＋</button>
+    <a href="#historial" data-nav="historial"><span>▤</span><small>Actividad</small></a>
+    <a href="#logros" data-nav="logros"><span>✧</span><small>Logros</small></a>
+  </nav>
+  <div id="modal" class="modal-root" aria-live="polite"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input type="file" accept=".json,application/json" id="import-file" hidden>
+  <script src="app.js" defer></script>
+</body>
+</html>

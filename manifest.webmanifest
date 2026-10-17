@@ -1,0 +1,15 @@
+{
+  "name": "Evoluciona · Mi desarrollo personal",
+  "short_name": "Evoluciona",
+  "description": "Registra tus avances, organiza tus objetivos y celebra tu evolución personal.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101a1e",
+  "theme_color": "#101a1e",
+  "lang": "es",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,5 +1,5 @@
 /* Caché limitado a archivos estáticos. Los registros personales quedan en IndexedDB. */
-const CACHE = 'evoluciona-static-v1';
+const CACHE = 'evoluciona-static-v1-2';
 const ASSETS = ['./','./index.html','./style.css','./app.js','./manifest.webmanifest','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));

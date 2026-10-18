@@ -8,3 +8,6 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 /* La navegación inferior es exclusiva de móviles. */
 @media(min-width:801px){.bottom-nav{display:none}}
+
+/* Evoluciona 1.2: vistas contextuales y proyectos */
+.area-heading{margin-top:18px}.area-quick-grid{margin-bottom:30px}.project-toolbar{margin-bottom:16px}.project-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:14px;margin-bottom:35px}.project-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:10px}.project-card h3{font-size:17px;margin:0}.project-card p{margin:4px 0;color:var(--muted);font-size:13px}.project-icon{font-size:26px}.project-card .btn{width:100%;justify-content:center}.project-card .btn:disabled{opacity:.65;cursor:default}.area-quick-grid .quick-action{min-height:88px}select[hidden],div[hidden]{display:none!important}

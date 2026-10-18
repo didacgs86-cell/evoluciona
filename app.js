@@ -1,4 +1,4 @@
-/* Evoluciona 1.0 — funciona sin servicios externos ni cuentas. */
+/* Evoluciona 1.2 — registro contextual por áreas y proyectos. */
 (() => {
   'use strict';
 
@@ -29,7 +29,8 @@
     { id: 'experience', label: 'Nueva experiencia', icon: '🌍', area: 'personal', unit: 'experiencias', input: false, xp: 10, initial: 1 },
     { id: 'professional', label: 'Logro profesional', icon: '🩺', area: 'profesional', unit: 'hitos', input: false, xp: 15, initial: 1 },
     { id: 'habit', label: 'Hábito completado', icon: '🌱', area: 'habitos', unit: 'acciones', input: false, xp: 10, initial: 1 },
-    { id: 'sleep', label: 'Horas de sueño', icon: '🌙', area: 'habitos', unit: 'horas', input: true, xp: 5, initial: '', step: '0.5' }
+    { id: 'sleep', label: 'Horas de sueño', icon: '🌙', area: 'habitos', unit: 'horas', input: true, xp: 5, initial: '', step: '0.5' },
+    { id: 'project', label: 'Trabajo en proyecto', icon: '💻', area: 'objetivos', unit: 'sesiones', input: false, xp: 15, initial: 1 }
   ];
   const TYPES_BY_ID = Object.fromEntries(TYPES.map(t => [t.id,t]));
   const AREA_BY_ID = Object.fromEntries(AREAS.map(a => [a.id,a]));
@@ -45,9 +46,12 @@
   const fmtN = (n, maximumFractionDigits = 1) => new Intl.NumberFormat('es-ES', {maximumFractionDigits}).format(n);
   const daysAgo = (n) => { const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-n);return localDate(d); };
   const areaLabel = (id) => AREA_BY_ID[id]?.label || 'Otros';
+  const projectName = (id) => state.projects.find(p=>p.id===id)?.name || 'Proyecto anterior';
+  const activeProjects = () => state.projects.filter(p=>!p.archived);
+  const currentArea = () => {const m=(location.hash||'').match(/^#area\/(\w+)/);return m&&AREA_BY_ID[m[1]]?m[1]:null;};
   const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(dateFromIso(s).getTime()) && localDate(dateFromIso(s))===s;
   const daysBetween = (start,end) => Math.round((dateFromIso(end)-dateFromIso(start))/(24*60*60*1000));
-  const defaultState = () => ({version:1,settings:{name:''},records:[],goals:[]});
+  const defaultState = () => ({version:1,settings:{name:''},records:[],goals:[],projects:[]});
   let state = defaultState();
   let database = null;
   let filterArea = 'todos';
@@ -57,6 +61,8 @@
 
   const ACHIEVEMENTS = [
     {id:'first-step',icon:'🌱',title:'Primer paso',description:'Registrar tu primer avance',target:1,from:s=>s.records.length},
+    {id:'project-1',icon:'💻',title:'Proyecto en marcha',description:'Registrar el primer día trabajado en un proyecto',target:1,from:s=>s.records.filter(r=>r.type==='project').length},
+    {id:'project-10',icon:'🚀',title:'Constructor constante',description:'Registrar 10 días de trabajo en proyectos',target:10,from:s=>s.records.filter(r=>r.type==='project').length},
     {id:'gym-10',icon:'💪',title:'En marcha',description:'Completar 10 entrenamientos',target:10,from:s=>s.records.filter(r=>r.type==='gym').length},
     {id:'gym-50',icon:'🏆',title:'Constancia física',description:'Completar 50 entrenamientos',target:50,from:s=>s.records.filter(r=>r.type==='gym').length},
     {id:'read-100',icon:'📗',title:'Entre páginas',description:'Leer 100 páginas',target:100,from:s=>sumType(s,'reading')},
@@ -70,6 +76,14 @@
     {id:'experience-5',icon:'🌍',title:'Coleccionista de momentos',description:'Registrar 5 experiencias nuevas',target:5,from:s=>s.records.filter(r=>r.type==='experience').length}
   ];
   const sumType = (s,type) => s.records.filter(r=>r.type===type).reduce((a,r)=>a+r.value,0);
+  const linkedTotal = (s,g) => g.recordType && g.linkedAt ? s.records.filter(r=>r.type===g.recordType && r.createdAt>g.linkedAt && (!g.projectId || r.projectId===g.projectId)).reduce((n,r)=>n+r.value,0) : 0;
+  const goalValue = (s,g) => Math.min(g.target, g.progress+linkedTotal(s,g));
+  function reconcileGoals(s){
+    s.goals.forEach(g=>{
+      if(!g.done && goalValue(s,g)>=g.target){g.done=true;g.autoCompleted=true;g.completedAt=new Date().toISOString();}
+      else if(g.done && g.autoCompleted && goalValue(s,g)<g.target){g.done=false;g.autoCompleted=false;g.completedAt=null;}
+    });
+  }
   const unlocked = (s=state) => ACHIEVEMENTS.filter(a=>a.from(s)>=a.target);
   const totalXp = () => state.records.reduce((n,r)=>n+(TYPES_BY_ID[r.type]?.xp||0),0)+state.goals.filter(g=>g.done).length*40+unlocked().length*50;
   const recentRecords = () => [...state.records].sort((a,b)=>b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
@@ -105,6 +119,7 @@
   async function transact(mutator, message){
     const draft=structuredClone(state);
     mutator(draft);
+    reconcileGoals(draft);
     try{
       await writeDB(draft);
       state=draft;
@@ -130,13 +145,14 @@
   function noContent(icon,text,buttonText='',action=''){return `<div class="empty"><div class="empty-icon">${icon}</div><div>${esc(text)}</div>${action?`<button class="btn btn-sm" style="margin-top:15px" data-action="${action}">${esc(buttonText)}</button>`:''}</div>`;}
   function navigation(page){
     document.querySelectorAll('[data-nav]').forEach(n=>n.classList.toggle('active',n.dataset.nav===page));
-    const labels={inicio:'MI PANEL PERSONAL',objetivos:'OBJETIVOS',historial:'HISTORIAL',logros:'LOGROS',ajustes:'MIS DATOS'};
+    const labels={inicio:'MI PANEL PERSONAL',objetivos:'OBJETIVOS',historial:'HISTORIAL',logros:'LOGROS',ajustes:'MIS DATOS',area:areaLabel(currentArea())};
     $('#page-eyebrow').textContent=labels[page]||labels.inicio;
   }
   function render(){
     const view=(location.hash||'#inicio').slice(1).split('?')[0];
     const page=['inicio','objetivos','historial','logros','ajustes'].includes(view)?view:'inicio';
     navigation(page);
+    if(view.startsWith('area/') && currentArea()){navigation('area');root.innerHTML=renderAreaPage(currentArea());return;}
     if(page==='inicio')root.innerHTML=renderHome();
     if(page==='objetivos')root.innerHTML=renderGoalsPage();
     if(page==='historial')root.innerHTML=renderHistoryPage();
@@ -157,13 +173,45 @@
       <section class="hero"><div><h1>${state.settings.name?`Hola, ${safeTitle(state.settings.name)}.`:'Cada paso cuenta.'}<br><span class="highlight">Mira cuánto avanzas.</span></h1><p class="subtitle">Un lugar para registrar lo que haces, reconocer lo que aprendes y disfrutar de tu propio progreso.</p><button class="btn btn-primary" data-action="open-record">＋ Registrar un avance</button></div>
       <div class="hero-stats"><span class="stat-label">Tu camino personal</span><div class="level-line"><span class="level-number">Nivel ${level}</span><span class="xp">${fmtN(xp,0)} XP</span></div><div class="progress-track"><div class="progress-fill" style="width:${(current/300)*100}%"></div></div><span class="progress-sub">${300-current} XP hasta el siguiente nivel · ${unlocked().length} insignias conseguidas</span></div></section>
       <div class="stats-grid">${statCard('🏋️','Entrenamientos',monthGym,'Este mes')}${statCard('📖','Páginas leídas',fmtN(monthReading,0),'Este mes')}${statCard('🎓','Horas de estudio',fmtN(monthStudy),'Este mes')}${statCard('🌱','Días con avances',days,'Últimos 30 días')}</div>
-      <div class="content-grid" style="margin-top:24px"><section class="panel"><div class="panel-heading"><h2>Tu actividad</h2><span class="chart-legend">Últimos 14 días</span></div>${renderActivityChart()}</section><section class="panel"><div class="panel-heading"><h2>Registra algo hoy</h2><span class="chart-legend">En unos segundos</span></div><div class="quick-grid">${['gym','reading','study','weight','learning','reflection'].map(id=>quickCard(TYPES_BY_ID[id])).join('')}</div></section></div>
-      ${sectionHeading('Áreas de desarrollo','Selecciona un área para ver sus registros')}
-      <div class="area-grid">${AREAS.map(a=>`<button class="area-card" data-action="area-history" data-area="${a.id}"><span class="area-icon">${a.icon}</span><span class="area-text"><strong>${a.label}</strong><small>${a.sub}</small></span><span class="area-arrow">↗</span></button>`).join('')}</div>
+      <div class="content-grid" style="margin-top:24px"><section class="panel"><div class="panel-heading"><h2>Tu actividad</h2><span class="chart-legend">Últimos 14 días</span></div>${renderActivityChart()}</section><section class="panel"><div class="panel-heading"><h2>Registra algo hoy</h2><span class="chart-legend">En unos segundos</span></div><div class="quick-grid">${['gym','reading','study','weight','learning','project'].map(id=>quickCard(TYPES_BY_ID[id])).join('')}</div></section></div>
+      ${sectionHeading('Áreas de desarrollo','Entra en un área para registrar y consultar solo sus actividades')}
+      <div class="area-grid">${AREAS.map(a=>`<button class="area-card" data-action="area-open" data-area="${a.id}"><span class="area-icon">${a.icon}</span><span class="area-text"><strong>${a.label}</strong><small>${a.sub}</small></span><span class="area-arrow">↗</span></button>`).join('')}</div>
       <div class="content-grid" style="margin-top:32px"><section>${sectionHeading('Actividad reciente','Ver todo','historial')}${prev.length?`<div class="activity-list">${prev.map(renderRecord).join('')}</div>`:noContent('✨','Todavía no hay avances registrados. El primero puede ser pequeño.','Registrar mi primer avance','open-record')}</section>
       <section>${sectionHeading('Objetivos en curso','Ver objetivos','objetivos')}${active.length?`<div class="goal-list">${active.map(g=>renderGoal(g,true)).join('')}</div>`:noContent('🎯','Define una meta que te ilusione y síguela poco a poco.','Crear un objetivo','open-goal')}</section></div>
       ${sectionHeading('Tu evolución física','Seguimiento opcional de tus medidas')}
       <section class="panel">${renderBodyMetrics()}</section><p class="footer-hint">Los puntos reconocen tus registros y metas, no tu valor personal. Descansar también forma parte del progreso.</p>`;
+  }
+  function renderAreaPage(areaId){
+    const a=AREA_BY_ID[areaId],items=TYPES.filter(t=>t.area===areaId);
+    const logs=recentRecords().filter(r=>TYPES_BY_ID[r.type]?.area===areaId).slice(0,15);
+    const goals=state.goals.filter(g=>g.area===areaId && !g.done);
+    const mon=localDate().slice(0,7);
+    const monthCount=state.records.filter(r=>r.date.startsWith(mon) && TYPES_BY_ID[r.type]?.area===areaId).length;
+    return `<button class="btn btn-sm btn-ghost" data-action="go-home">← Volver al resumen</button>
+      <div class="page-heading area-heading"><div><div class="eyebrow">ÁREA DE DESARROLLO</div><h1>${a.icon} ${esc(a.label)}</h1><p class="subtitle">${esc(a.sub)} · Registra tus avances en esta área, sin mezclar otras categorías.</p></div>
+      <button class="btn btn-primary" data-action="open-record">＋ Registrar en ${esc(a.label)}</button></div>
+      <div class="stats-grid" style="margin-bottom:24px">${statCard('🗓️','Registros este mes',monthCount,'Esta área')}${statCard('🎯','Objetivos activos',goals.length,'Esta área')}${statCard('✨','Avances acumulados',state.records.filter(r=>TYPES_BY_ID[r.type]?.area===areaId).length,'Histórico')}</div>
+      ${sectionHeading('Qué quieres registrar','Solo actividades de esta área')}
+      <div class="quick-grid area-quick-grid">${items.map(quickCard).join('')}</div>
+      ${areaId==='objetivos'?renderProjectsSection():''}
+      ${goals.length?`${sectionHeading('Objetivos en curso','Progreso en esta área')}<div class="goal-list">${goals.map(g=>renderGoal(g)).join('')}</div>`:''}
+      ${sectionHeading('Actividad en esta área','Últimos 15 registros')}
+      ${logs.length?`<div class="activity-list">${logs.map(renderRecord).join('')}</div>`:noContent('✨','Todavía no tienes registros en esta área.','Registrar ahora','open-record')}
+      ${areaId==='fisico'?`${sectionHeading('Evolución corporal','Datos de tus medidas')}<section class="panel">${renderBodyMetrics()}</section>`:''}`;
+  }
+  function renderProjectsSection(){
+    const projects=activeProjects();
+    return `${sectionHeading('Mis proyectos','Apps, iniciativas y otras creaciones')}
+      <div class="project-toolbar"><button class="btn btn-primary" data-action="new-project">＋ Crear proyecto</button></div>
+      ${projects.length?`<div class="project-grid">${projects.map(p=>{
+        const count=state.records.filter(r=>r.type==='project'&&r.projectId===p.id).length;
+        const today=state.records.some(r=>r.type==='project'&&r.projectId===p.id&&r.date===localDate());
+        return `<div class="project-card"><div class="project-icon">💻</div><div><h3>${esc(p.name)}</h3><p>${count} ${count===1?'día registrado':'días registrados'}</p></div>
+          <button class="btn btn-primary btn-sm" data-action="project-today" data-id="${esc(p.id)}" ${today?'disabled':''}>${today?'✓ Registrado hoy':'＋ He trabajado hoy'}</button>
+          <button class="btn btn-sm btn-ghost" data-action="project-detail" data-id="${esc(p.id)}">Añadir detalle</button>
+          <button class="btn btn-sm btn-ghost" data-action="archive-project" data-id="${esc(p.id)}">Archivar</button></div>`;
+      }).join('')}</div>`:noContent('💻','Crea el nombre de tu primera app o proyecto. Después podrás marcar los días en que trabajas en él.')}
+      ${state.projects.some(p=>p.archived)?`<div class="project-toolbar"><strong>Proyectos archivados</strong></div><div class="project-grid">${state.projects.filter(p=>p.archived).map(p=>`<div class="project-card"><div><h3>${esc(p.name)}</h3><p>Archivado · registros conservados</p></div><button class="btn btn-sm" data-action="restore-project" data-id="${esc(p.id)}">↩ Reactivar</button></div>`).join('')}</div>`:''}`;
   }
   function quickCard(t){return `<button class="quick-action" data-action="new-record" data-type="${t.id}"><span class="quick-icon">${t.icon}</span><span class="name">${esc(t.label)}</span></button>`;}
   function renderActivityChart(){
@@ -205,7 +253,7 @@
   function renderRecord(r){
     const t=TYPES_BY_ID[r.type];if(!t)return '';
     const quantity=t.input?`${fmtN(r.value)} ${t.unit}`:t.label;
-    return `<article class="record-row"><div class="record-icon">${t.icon}</div><div class="record-body"><div class="record-title">${esc(t.label)}</div><div class="record-meta">${esc(fmtDate(r.date))} · ${esc(areaLabel(t.area))}</div>${r.note?`<p class="record-note">${esc(r.note)}</p>`:''}</div><div class="record-side"><span class="pill neutral">${esc(quantity)}</span><div class="record-meta" style="margin-top:7px">+${t.xp} XP</div></div><button class="icon-button" data-action="delete-record" data-id="${esc(r.id)}" title="Eliminar registro" aria-label="Eliminar registro">×</button></article>`;
+    return `<article class="record-row"><div class="record-icon">${t.icon}</div><div class="record-body"><div class="record-title">${esc(r.type==='project'?`Proyecto · ${projectName(r.projectId)}`:t.label)}</div><div class="record-meta">${esc(fmtDate(r.date))} · ${esc(areaLabel(t.area))}</div>${r.note?`<p class="record-note">${esc(r.note)}</p>`:''}</div><div class="record-side"><span class="pill neutral">${esc(quantity)}</span><div class="record-meta" style="margin-top:7px">+${t.xp} XP</div></div><button class="icon-button" data-action="delete-record" data-id="${esc(r.id)}" title="Eliminar registro" aria-label="Eliminar registro">×</button></article>`;
   }
   function renderGoalsPage(){
     const active=state.goals.filter(g=>!g.done).sort((a,b)=>a.deadline.localeCompare(b.deadline));
@@ -216,17 +264,19 @@
       ${sectionHeading('Metas completadas',`${done.length} logros`)}${done.length?`<div class="goal-list">${done.map(g=>renderGoal(g)).join('')}</div>`:noContent('🏁','Cuando completes objetivos aparecerán aquí.')}`;
   }
   function renderGoal(g,compact=false){
-    const pct=Math.min(100,Math.round(g.progress/g.target*100));
+    const current=goalValue(state,g), auto=linkedTotal(state,g);
+    const pct=Math.min(100,Math.round(current/g.target*100));
     const overDue=!g.done&&g.deadline<localDate();
     const dueText=g.done?'Completado':overDue?'Fecha pasada':`Hasta ${fmtDate(g.deadline)}`;
     return `<article class="goal-card"><div class="goal-top"><span class="area-icon" style="height:36px;width:36px;font-size:19px">${AREA_BY_ID[g.area]?.icon||'🎯'}</span><div class="goal-body"><div class="goal-title">${esc(g.title)}</div><div class="goal-area">${esc(areaLabel(g.area))}</div></div><span class="pill ${g.done?'':'neutral'} ${overDue?'warn':''}">${esc(dueText)}</span></div>
-      <div class="progress-track" style="margin-top:17px"><div class="progress-fill" style="width:${pct}%"></div></div><div class="goal-foot"><span>${fmtN(g.progress)} / ${fmtN(g.target)} ${esc(g.unit)}</span><span>${pct}%</span></div>
-      ${!compact&&g.note?`<p class="record-note">${esc(g.note)}</p>`:''}<div class="goal-actions"><button class="btn btn-sm" data-action="goal-progress" data-id="${esc(g.id)}" ${g.done?'disabled':''}>＋ Añadir avance</button><button class="btn btn-sm btn-ghost" data-action="toggle-goal" data-id="${esc(g.id)}">${g.done?'↩ Reabrir':'✓ Completar'}</button>${!compact?`<button class="btn btn-sm btn-ghost" data-action="delete-goal" data-id="${esc(g.id)}">Eliminar</button>`:''}</div></article>`;
+      <div class="progress-track" style="margin-top:17px"><div class="progress-fill" style="width:${pct}%"></div></div><div class="goal-foot"><span>${fmtN(current)} / ${fmtN(g.target)} ${esc(g.unit)}</span><span>${pct}%</span></div>
+      ${g.recordType?`<p class="record-note">⚡ ${esc(TYPES_BY_ID[g.recordType]?.label||'Actividad')}${g.recordType==='project'&&g.projectId?` · ${esc(projectName(g.projectId))}`:''} · ${fmtN(auto)} ${esc(g.unit)} añadidos automáticamente.</p>`:''}
+      ${!compact&&g.note?`<p class="record-note">${esc(g.note)}</p>`:''}<div class="goal-actions">${!g.recordType?`<button class="btn btn-sm" data-action="goal-progress" data-id="${esc(g.id)}" ${g.done?'disabled':''}>＋ Añadir avance</button>`:''}${!g.done?`<button class="btn btn-sm" data-action="goal-link" data-id="${esc(g.id)}">⚡ ${g.recordType?'Cambiar/desvincular':'Vincular actividad'}</button>`:''}<button class="btn btn-sm btn-ghost" data-action="toggle-goal" data-id="${esc(g.id)}" ${g.autoCompleted?'disabled':''}>${g.autoCompleted?'✓ Completado automáticamente':g.done?'↩ Reabrir':'✓ Completar'}</button>${!compact?`<button class="btn btn-sm btn-ghost" data-action="delete-goal" data-id="${esc(g.id)}">Eliminar</button>`:''}</div></article>`;
   }
   function renderHistoryPage(){
     const list=recentRecords().filter(r=>filterArea==='todos'||TYPES_BY_ID[r.type]?.area===filterArea);
     return `<div class="page-heading"><div><div class="eyebrow">EL CAMINO RECORRIDO</div><h1>Historial de avances</h1><p class="subtitle">Cada registro es una pequeña parte de tu historia.</p></div><button class="btn btn-primary" data-action="open-record">＋ Registrar</button></div>
-      <div class="filters"><button class="chip ${filterArea==='todos'?'active':''}" data-action="filter" data-area="todos">Todas las áreas</button>${AREAS.filter(a=>a.id!=='objetivos').map(a=>`<button class="chip ${filterArea===a.id?'active':''}" data-action="filter" data-area="${a.id}">${a.icon} ${a.label}</button>`).join('')}</div>
+      <div class="filters"><button class="chip ${filterArea==='todos'?'active':''}" data-action="filter" data-area="todos">Todas las áreas</button>${AREAS.map(a=>`<button class="chip ${filterArea===a.id?'active':''}" data-action="filter" data-area="${a.id}">${a.icon} ${a.label}</button>`).join('')}</div>
       ${list.length?`<div class="activity-list">${list.map(renderRecord).join('')}</div>`:noContent('📔','No hay registros en este filtro. Puedes empezar con un pequeño avance.','Registrar avance','open-record')}
       <p class="footer-hint">Tus registros se guardan en este navegador. Exporta una copia desde Ajustes para protegerlos.</p>`;
   }
@@ -245,12 +295,19 @@
       <section class="setting-card"><h3>🧹 Empezar de nuevo</h3><p>Elimina todos los registros, logros, objetivos y ajustes guardados en este navegador. Esta acción no se puede deshacer si no tienes una copia.</p><button class="btn btn-danger" data-action="reset">Eliminar todos mis datos</button></section></div>
       <p class="footer-hint">Versión 1.0 · IndexedDB · Funciona sin cuenta ni Supabase · Para uso personal · Recomendado: exportar una copia cada semana.</p>`;
   }
-  function recordPicker(){
-    showModal('¿Qué has conseguido hoy?','Elige una categoría. Solo necesitas unos segundos.',`<div class="quick-grid">${TYPES.map(quickCard).join('')}</div>`);
+  function recordPicker(areaId=currentArea()){
+    const list=areaId?TYPES.filter(t=>t.area===areaId):TYPES;
+    const area=AREA_BY_ID[areaId];
+    showModal(area?`Registrar · ${area.label}`:'¿Qué has conseguido hoy?',area?'Solo actividades de esta área.':'Elige una actividad de cualquiera de las áreas.',`<div class="quick-grid">${list.map(quickCard).join('')}</div>${areaId==='objetivos'?'<button class="btn btn-sm" data-action="new-project" style="margin-top:15px">＋ Crear nuevo proyecto</button>':''}`);
   }
-  function recordForm(typeId){
+  function newProjectForm(){
+    showModal('Crear proyecto','Escribe el nombre de una app, iniciativa o proyecto que quieras seguir.',`<form id="project-form"><div class="form-group"><label class="form-label" for="project-name">Nombre del proyecto</label><input id="project-name" name="name" required maxlength="90" class="field" placeholder="Ej.: English365, NutriTrack, mi nueva app"></div><div class="form-actions"><button type="button" class="btn" data-action="close-modal">Cancelar</button><button type="submit" class="btn btn-primary">Crear proyecto</button></div></form>`);
+  }
+  function recordForm(typeId, selectedProjectId=''){
     const t=TYPES_BY_ID[typeId]||TYPES_BY_ID.gym;
+    if(t.id==='project' && !activeProjects().length){newProjectForm();return;}
     showModal(`Registrar · ${t.label}`,'Puedes añadir una nota para recordar por qué fue importante.',`<form id="record-form"><input type="hidden" name="type" value="${t.id}">
+    ${t.id==='project'?`<div class="form-group"><label class="form-label" for="record-project">Proyecto</label><select required id="record-project" name="projectId" class="select-field">${activeProjects().map(p=>`<option value="${esc(p.id)}" ${selectedProjectId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>`:''}
     <div class="form-grid"><div class="form-group"><label class="form-label" for="record-date">Fecha</label><input required class="field" id="record-date" type="date" name="date" value="${localDate()}"></div>
     ${t.input?`<div class="form-group"><label class="form-label" for="record-amount">Cantidad (${t.unit})</label><input required class="field" id="record-amount" name="amount" type="number" min="0.01" max="100000" step="any" inputmode="decimal" placeholder="Ej.: ${t.id==='weight'?'68,5':'30'}"></div>`:'<div class="form-group"><label class="form-label">Registro</label><div class="field" style="opacity:.8">1 actividad completada</div></div>'}</div>
     <div class="form-group"><label class="form-label" for="record-note">Detalle o reflexión (opcional)</label><textarea id="record-note" name="note" class="textarea-field" maxlength="1000" placeholder="¿Qué has hecho? ¿Qué has aprendido? ¿Cómo te has sentido?"></textarea></div>
@@ -260,11 +317,16 @@
     showModal('Crear un objetivo','Divídelo en pequeñas acciones medibles.',`<form id="goal-form"><div class="form-group"><label for="goal-title" class="form-label">Nombre del objetivo</label><input id="goal-title" name="title" class="field" required maxlength="110" placeholder="Ej.: Completar 20 entrenamientos"></div>
     <div class="form-grid"><div class="form-group"><label for="goal-area" class="form-label">Área</label><select id="goal-area" name="area" class="select-field">${AREAS.map(a=>`<option value="${a.id}">${a.icon} ${a.label}</option>`).join('')}</select></div><div class="form-group"><label for="goal-deadline" class="form-label">Fecha objetivo</label><input type="date" required name="deadline" id="goal-deadline" class="field" value="${daysAgo(-30)}"></div></div>
     <div class="form-grid"><div class="form-group"><label for="goal-target" class="form-label">Cantidad que quieres alcanzar</label><input type="number" step="any" min="0.01" max="1000000" required name="target" id="goal-target" class="field" value="10"></div><div class="form-group"><label for="goal-unit" class="form-label">Unidad</label><input name="unit" id="goal-unit" class="field" maxlength="35" required placeholder="sesiones, páginas, horas…"></div></div>
+    <div class="form-group"><label for="goal-record-type" class="form-label">Actividad vinculada (opcional)</label><select name="recordType" id="goal-record-type" class="select-field"><option value="">Sin vincular: progreso manual</option>${TYPES.map(t=>`<option value="${t.id}">${t.icon} ${esc(t.label)} (${esc(t.unit)})</option>`).join('')}</select><div id="goal-project-wrap" class="form-group" hidden><label class="form-label" for="goal-project">Proyecto concreto</label><select id="goal-project" name="projectId" class="select-field"><option value="">Todos mis proyectos</option>${state.projects.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></div><p class="mini-note">Al vincular, cada registro NUEVO de esa actividad sumará automáticamente.</p></div>
     <div class="form-group"><label for="goal-note" class="form-label">Descripción (opcional)</label><textarea id="goal-note" name="note" maxlength="500" class="textarea-field" placeholder="¿Por qué es importante para ti?"></textarea></div>
     <div class="form-actions"><button type="button" class="btn" data-action="close-modal">Cancelar</button><button type="submit" class="btn btn-primary">Crear objetivo</button></div></form>`);
   }
+  function goalLinkForm(goalId){
+    const g=state.goals.find(g=>g.id===goalId);if(!g||g.done)return;
+    showModal('Vincular actividad',g.title,`<form id="goal-link-form"><input type="hidden" name="id" value="${esc(g.id)}"><div class="form-group"><label class="form-label" for="link-type">Actividad</label><select name="recordType" id="link-type" class="select-field"><option value="">Sin vincular</option>${TYPES.map(t=>`<option value="${t.id}" ${g.recordType===t.id?'selected':''}>${esc(t.label)} (${esc(t.unit)})</option>`).join('')}</select><div id="link-project-wrap" class="form-group" ${g.recordType==='project'?'':'hidden'}><label class="form-label" for="link-project">Proyecto concreto</label><select id="link-project" name="projectId" class="select-field"><option value="">Todos mis proyectos</option>${state.projects.map(p=>`<option value="${esc(p.id)}" ${g.projectId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div></div><p class="mini-note">Los registros anteriores no se duplicarán. Al desvincular se conserva el avance acumulado.</p><div class="form-actions"><button type="button" class="btn" data-action="close-modal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar vinculación</button></div></form>`);
+  }
   function progressForm(goalId){
-    const g=state.goals.find(x=>x.id===goalId);if(!g||g.done)return;
+    const g=state.goals.find(x=>x.id===goalId);if(!g||g.done||g.recordType)return;
     showModal('Actualizar objetivo',g.title,`<form id="progress-form"><input type="hidden" name="id" value="${esc(g.id)}"><div class="form-group"><label class="form-label" for="progress-amount">Avance adicional (${esc(g.unit)})</label><input id="progress-amount" required class="field" type="number" step="any" min="0.01" max="1000000" name="amount" placeholder="¿Cuánto has avanzado?"></div><p class="record-meta">Ahora: ${fmtN(g.progress)} de ${fmtN(g.target)} ${esc(g.unit)}. Al llegar al objetivo quedará completado automáticamente.</p><div class="form-actions"><button type="button" class="btn" data-action="close-modal">Cancelar</button><button class="btn btn-primary" type="submit">Añadir progreso</button></div></form>`);
   }
   function downloadBackup(){
@@ -280,36 +342,59 @@
     const data=input.data;
     if(!data||!Array.isArray(data.records)||!Array.isArray(data.goals))throw Error('La copia no contiene registros válidos.');
     if(data.records.length>100000||data.goals.length>10000)throw Error('La copia contiene demasiados elementos.');
-    const recIds=new Set(),goalIds=new Set();
+    const recIds=new Set(),goalIds=new Set(),projectIds=new Set();
+    const projects=(Array.isArray(data.projects)?data.projects:[]).map(p=>{
+      if(typeof p.id!=='string'||!p.id||projectIds.has(p.id)||typeof p.name!=='string'||!p.name.trim())throw Error('Hay proyectos inválidos en la copia.');
+      projectIds.add(p.id);
+      return {id:p.id.slice(0,100),name:p.name.trim().slice(0,90),archived:Boolean(p.archived),createdAt:typeof p.createdAt==='string'?p.createdAt.slice(0,40):new Date().toISOString()};
+    });
     const records=data.records.map(r=>{
       if(typeof r.id!=='string'||!r.id||recIds.has(r.id)||!TYPES_BY_ID[r.type]||!isValidDate(r.date)||!Number.isFinite(r.value)||r.value<=0||r.value>100000)throw Error('Hay registros inválidos en el archivo.');
       recIds.add(r.id);
-      return {id:r.id.slice(0,100),type:r.type,date:r.date,value:r.value,note:String(r.note||'').slice(0,1000),createdAt:typeof r.createdAt==='string'?r.createdAt.slice(0,40):new Date().toISOString()};
+      return {id:r.id.slice(0,100),type:r.type,date:r.date,value:r.value,projectId:r.type==='project'&&projectIds.has(r.projectId)?r.projectId:null,note:String(r.note||'').slice(0,1000),createdAt:typeof r.createdAt==='string'?r.createdAt.slice(0,40):new Date().toISOString()};
     });
     const goals=data.goals.map(g=>{
       if(typeof g.id!=='string'||!g.id||goalIds.has(g.id)||!AREA_BY_ID[g.area]||!isValidDate(g.deadline)||!Number.isFinite(g.target)||g.target<=0||g.target>1000000||!Number.isFinite(g.progress)||g.progress<0||g.progress>1000000||typeof g.title!=='string'||!g.title.trim()||typeof g.unit!=='string'||!g.unit.trim())throw Error('Hay objetivos inválidos en el archivo.');
       goalIds.add(g.id);
-      return {id:g.id.slice(0,100),title:g.title.slice(0,110),area:g.area,target:g.target,unit:g.unit.slice(0,35),progress:Math.min(g.progress,g.target),deadline:g.deadline,done:Boolean(g.done),note:String(g.note||'').slice(0,500),createdAt:typeof g.createdAt==='string'?g.createdAt.slice(0,40):new Date().toISOString(),completedAt:typeof g.completedAt==='string'?g.completedAt.slice(0,40):null};
+      const recordType=TYPES_BY_ID[g.recordType]&&typeof g.linkedAt==='string'&&Number.isFinite(Date.parse(g.linkedAt))?g.recordType:null;
+      return {projectId:recordType==='project'&&projectIds.has(g.projectId)?g.projectId:null,recordType,linkedAt:recordType?g.linkedAt:null,autoCompleted:Boolean(g.autoCompleted),id:g.id.slice(0,100),title:g.title.slice(0,110),area:g.area,target:g.target,unit:g.unit.slice(0,35),progress:Math.min(g.progress,g.target),deadline:g.deadline,done:Boolean(g.done),note:String(g.note||'').slice(0,500),createdAt:typeof g.createdAt==='string'?g.createdAt.slice(0,40):new Date().toISOString(),completedAt:typeof g.completedAt==='string'?g.completedAt.slice(0,40):null};
     });
-    return {version:1,settings:{name:String(data.settings?.name||'').slice(0,35)},records,goals};
+    return {version:1,settings:{name:String(data.settings?.name||'').slice(0,35)},records,goals,projects};
   }
   function handleClick(e){
     const el=e.target.closest('[data-action]');if(!el)return;
     const action=el.dataset.action;
     if(action==='open-record'){recordPicker();return;}
+    if(action==='go-home'){location.hash='#inicio';return;}
+    if(action==='area-open'){location.hash=`#area/${el.dataset.area}`;return;}
+    if(action==='new-project'){newProjectForm();return;}
+    if(action==='project-detail'){recordForm('project',el.dataset.id);return;}
+    if(action==='project-today'){
+      const id=el.dataset.id,p=activeProjects().find(x=>x.id===id);if(!p)return;
+      if(state.records.some(r=>r.type==='project'&&r.projectId===id&&r.date===localDate())){toast('Ese proyecto ya está registrado hoy.');return;}
+      transact(s=>s.records.push({id:newId(),type:'project',projectId:id,date:localDate(),value:1,note:'',createdAt:new Date().toISOString()}),`Día de trabajo registrado en ${p.name}`);return;
+    }
+    if(action==='restore-project'){
+      const id=el.dataset.id;
+      transact(s=>{const x=s.projects.find(z=>z.id===id);if(x)x.archived=false;},'Proyecto reactivado');return;
+    }
+    if(action==='archive-project'){
+      const id=el.dataset.id,p=activeProjects().find(x=>x.id===id);if(!p||!confirm(`¿Archivar ${p.name}? Conservarás sus registros y sus logros.`))return;
+      transact(s=>{const x=s.projects.find(z=>z.id===id);if(x)x.archived=true;},'Proyecto archivado');return;
+    }
     if(action==='close-modal'){closeModal();return;}
     if(action==='new-record'){recordForm(el.dataset.type);return;}
     if(action==='new-weight'){recordForm('weight');return;}
     if(action==='new-body-metric'){recordForm(bodyMetric);return;}
     if(action==='body-metric'){bodyMetric=el.dataset.type;render();return;}
-    if(action==='area-history'){filterArea=el.dataset.area;location.hash='#historial';render();return;}
     if(action==='filter'){filterArea=el.dataset.area;render();return;}
     if(action==='period'){period=Number(el.dataset.period);render();return;}
     if(action==='open-goal'){goalForm();return;}
     if(action==='goal-progress'){progressForm(el.dataset.id);return;}
+    if(action==='goal-link'){goalLinkForm(el.dataset.id);return;}
     if(action==='toggle-goal'){
       const g=state.goals.find(x=>x.id===el.dataset.id);if(!g)return;
-      transact(s=>{const it=s.goals.find(x=>x.id===g.id);it.done=!it.done;it.completedAt=it.done?new Date().toISOString():null;},g.done?'Objetivo reabierto':'¡Objetivo completado!');return;
+      transact(s=>{const it=s.goals.find(x=>x.id===g.id);it.done=!it.done;it.autoCompleted=false;it.completedAt=it.done?new Date().toISOString():null;},g.done?'Objetivo reabierto':'¡Objetivo completado!');return;
     }
     if(action==='delete-record'){
       if(!confirm('¿Eliminar este registro? Los puntos y logros se recalcularán.'))return;
@@ -332,29 +417,56 @@
     }
   }
   async function handleSubmit(e){
-    if(!['record-form','goal-form','progress-form','name-form'].includes(e.target.getAttribute('id')))return;
+    if(!['record-form','goal-form','goal-link-form','progress-form','name-form','project-form'].includes(e.target.getAttribute('id')))return;
     e.preventDefault();
     const form=e.target, fields=new FormData(form);
+    if(form.getAttribute('id')==='project-form'){
+      const name=String(fields.get('name')||'').trim();if(!name){toast('Escribe el nombre de tu proyecto.');return;}
+      if(state.projects.some(p=>p.name.toLocaleLowerCase('es')===name.toLocaleLowerCase('es'))){toast('Ya tienes un proyecto con ese nombre.');return;}
+      const ok=await transact(s=>s.projects.push({id:newId(),name:name.slice(0,90),archived:false,createdAt:new Date().toISOString()}),'Proyecto creado');
+      if(ok){closeModal();location.hash='#area/objetivos';}return;
+    }
     if(form.getAttribute('id')==='record-form'){
       const type=String(fields.get('type'));
       const t=TYPES_BY_ID[type],date=String(fields.get('date'));
       const amount=t?.input?Number(String(fields.get('amount')).replace(',','.')):1;
       if(!t||!isValidDate(date)||!Number.isFinite(amount)||amount<=0||amount>100000){toast('Revisa la fecha y la cantidad.');return;}
-      const result=await transact(s=>s.records.push({id:newId(),type,date,value:amount,note:String(fields.get('note')||'').trim().slice(0,1000),createdAt:new Date().toISOString()}),'Avance registrado. ¡Buen trabajo!');
+      const projectId=t.id==='project'?String(fields.get('projectId')||''):null;
+      if(t.id==='project'&&!activeProjects().some(p=>p.id===projectId)){toast('Selecciona un proyecto válido.');return;}
+      const existing=t.id==='project'?state.records.find(r=>r.type==='project'&&r.projectId===projectId&&r.date===date):null;
+      if(existing){
+        const note=String(fields.get('note')||'').trim().slice(0,1000);
+        if(!note){toast('Ese proyecto ya está registrado en esa fecha. Añade una nota para completar su detalle.');return;}
+        const ok=await transact(s=>{const r=s.records.find(r=>r.id===existing.id);if(r)r.note=note;},'Detalle del proyecto actualizado sin duplicar la sesión');
+        if(ok)closeModal();return;
+      }
+      const result=await transact(s=>s.records.push({id:newId(),type,date,value:amount,projectId,note:String(fields.get('note')||'').trim().slice(0,1000),createdAt:new Date().toISOString()}),'Avance registrado. ¡Buen trabajo!');
       if(result)closeModal();return;
     }
     if(form.getAttribute('id')==='goal-form'){
-      const title=String(fields.get('title')||'').trim(),area=String(fields.get('area'));
-      const target=Number(fields.get('target')),unit=String(fields.get('unit')||'').trim(),deadline=String(fields.get('deadline'));
+      const title=String(fields.get('title')||'').trim(),recordType=String(fields.get('recordType')||'');
+      const type=TYPES_BY_ID[recordType],area=type?.area||String(fields.get('area'));
+      const target=Number(fields.get('target')),unit=type?.unit||String(fields.get('unit')||'').trim(),deadline=String(fields.get('deadline'));
       if(!title||!AREA_BY_ID[area]||!isValidDate(deadline)||!unit||!Number.isFinite(target)||target<=0||target>1000000){toast('Revisa los campos del objetivo.');return;}
-      const result=await transact(s=>s.goals.push({id:newId(),title:title.slice(0,110),area,target,unit:unit.slice(0,35),progress:0,deadline,done:false,note:String(fields.get('note')||'').trim().slice(0,500),createdAt:new Date().toISOString(),completedAt:null}),'Objetivo creado');
+      const projectId=type?.id==='project'&&state.projects.some(p=>p.id===String(fields.get('projectId')))?String(fields.get('projectId')):null;
+      const result=await transact(s=>s.goals.push({id:newId(),title:title.slice(0,110),area,target,unit:unit.slice(0,35),progress:0,deadline,done:false,note:String(fields.get('note')||'').trim().slice(0,500),createdAt:new Date().toISOString(),completedAt:null,recordType:type?.id||null,projectId,linkedAt:type?new Date().toISOString():null,autoCompleted:false}),'Objetivo creado');
       if(result){closeModal();location.hash='#objetivos';}return;
+    }
+    if(form.getAttribute('id')==='goal-link-form'){
+      const id=String(fields.get('id')), t=TYPES_BY_ID[String(fields.get('recordType')||'')];
+      const projectId=t?.id==='project'&&state.projects.some(p=>p.id===String(fields.get('projectId')))?String(fields.get('projectId')):null;
+      const g=state.goals.find(g=>g.id===id);if(!g||g.done)return;
+      if(t && g.unit!==t.unit && goalValue(state,g)>0 && !confirm(`La unidad cambiará de ${g.unit} a ${t.unit} conservando el número de progreso previo. ¿Continuar?`))return;
+      const ok=await transact(s=>{const x=s.goals.find(g=>g.id===id);if(x.recordType!==(t?.id||null)||x.projectId!==projectId){
+        x.progress=goalValue(s,x);x.recordType=t?.id||null;x.projectId=projectId;x.linkedAt=t?new Date().toISOString():null;
+        if(t){x.unit=t.unit;x.area=t.area;}
+      }},'Vinculación actualizada');if(ok)closeModal();return;
     }
     if(form.getAttribute('id')==='progress-form'){
       const id=String(fields.get('id')),value=Number(fields.get('amount'));
       if(!Number.isFinite(value)||value<=0||value>1000000){toast('Introduce una cantidad válida.');return;}
-      const goal=state.goals.find(g=>g.id===id);if(!goal||goal.done)return;
-      const result=await transact(s=>{const g=s.goals.find(g=>g.id===id);g.progress=Math.min(g.target,g.progress+value);if(g.progress>=g.target){g.done=true;g.completedAt=new Date().toISOString();}},goal.progress+value>=goal.target?'¡Objetivo alcanzado!':'Progreso actualizado');
+      const goal=state.goals.find(g=>g.id===id);if(!goal||goal.done||goal.recordType)return;
+      const result=await transact(s=>{const g=s.goals.find(g=>g.id===id);g.progress=Math.min(g.target,g.progress+value);},goal.progress+value>=goal.target?'¡Objetivo alcanzado!':'Progreso actualizado');
       if(result)closeModal();return;
     }
     if(form.getAttribute('id')==='name-form'){
@@ -382,6 +494,15 @@
     $('#today-label').textContent=new Date().toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
     document.addEventListener('click',handleClick);
     document.addEventListener('submit',handleSubmit);
+    document.addEventListener('change',e=>{
+      if(e.target.id==='goal-record-type'){
+        const t=TYPES_BY_ID[e.target.value],u=$('#goal-unit'),a=$('#goal-area'),wrap=$('#goal-project-wrap');
+        if(t){u.value=t.unit;u.readOnly=true;a.value=t.area;a.disabled=true;}
+        else{u.readOnly=false;a.disabled=false;}
+        if(wrap)wrap.hidden=t?.id!=='project';
+      }
+      if(e.target.id==='link-type'){const wrap=$('#link-project-wrap');if(wrap)wrap.hidden=e.target.value!=='project';}
+    });
     window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0);});
     modal.addEventListener('click',(e)=>{if(e.target===modal)closeModal();});
     document.addEventListener('keydown',(e)=>{if(e.key==='Escape'&&modal.innerHTML)closeModal();});
@@ -398,7 +519,7 @@
   }
   function verifyLocalState(candidate){
     if(candidate?.version!==1||!Array.isArray(candidate.records)||!Array.isArray(candidate.goals))throw Error('El formato de datos local no es compatible. Evita borrar nada y recupera una copia si la tienes.');
-    return {version:1,settings:{name:String(candidate.settings?.name||'').slice(0,35)},records:candidate.records,goals:candidate.goals};
+    return {version:1,settings:{name:String(candidate.settings?.name||'').slice(0,35)},records:candidate.records,goals:candidate.goals,projects:Array.isArray(candidate.projects)?candidate.projects:[]};
   }
   main();
 })();

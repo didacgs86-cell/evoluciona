@@ -55,4 +55,19 @@ Luego visita `http://localhost:8000`.
 
 Biblioteca de libros individualizados; medidas corporales adicionales; desafíos semanales; gráficos por cada métrica; exportación CSV; foto de cada hito; objetivos con subtareas; integración opcional y voluntaria con NutriTrack; sincronización con un backend si resulta necesaria.
 
-Versión 1.0 — prototipo personal. No está pensada para almacenar datos clínicos ni para utilizarse como copia única de información importante.
+Versión 1.2 — prototipo personal. No está pensada para almacenar datos clínicos ni para utilizarse como copia única de información importante.
+
+
+## Versión 1.1
+Las metas se pueden vincular a actividades. Los registros nuevos incrementan automáticamente el objetivo y, al borrar un registro, el total se recalcula. Se conserva el progreso manual anterior al vincular.
+
+
+## Novedades 1.2
+
+- Las tarjetas de **Áreas de desarrollo** ahora abren una vista específica: registro contextual, historial filtrado y objetivos de esa área. El botón «Registrar» también se adapta al área abierta.
+- Se añade **Trabajo en proyecto** al selector global y a «Objetivos y proyectos».
+- En «Objetivos y proyectos» puedes crear proyectos con nombre (por ejemplo, English365, NutriTrack), pulsar «He trabajado hoy» para guardar un registro instantáneo o «Añadir detalle» para indicar fecha y nota. Evita registrar dos veces el mismo proyecto en un mismo día; si ya existe puedes completar la nota del registro.
+- Los proyectos pueden archivarse y reactivarse sin borrar su historial. Los objetivos automáticos vinculados a «Trabajo en proyecto» pueden limitarse a un proyecto concreto.
+- Dos nuevas insignias reconocen el trabajo en proyectos. Las copias de seguridad conservan también los proyectos, sin perder compatibilidad con las copias 1.0 y 1.1.
+
+**Actualización:** sube los archivos nuevos manteniendo la misma dirección GitHub Pages. No borres los datos del navegador. Haz una exportación JSON previa desde Ajustes.
